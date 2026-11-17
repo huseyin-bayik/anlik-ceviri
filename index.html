@@ -151,7 +151,11 @@
 
   let rec = null, current = null, wantRun = false;
   let finalText = '', interimText = '', reqId = 0, debounce = null, lastTranslated = '';
-  let wakeLock = null;
+  let wakeLock = null, restarts = 0;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const inApp = /FBAN|FBAV|Instagram|Line\/|GSA\/|wv\)|; wv/i.test(navigator.userAgent);
+  if (SR && inApp) showErr('Uygulama içi tarayıcıda açılmış görünüyor. Linki Chrome ile aç (⋮ → "Chrome\'da aç").');
+  function setSt(m, txt){ m.st.innerHTML = '<span class="dot"></span>' + txt; }
 
   function render(m, translated, pending){
     m.body.innerHTML = '';
@@ -219,11 +223,16 @@
 
     rec = new SR();
     rec.lang = m.lang;
-    rec.continuous = true;
+    // Telefonlarda 'continuous' modu sorunlu; kısa oturumlar açıp otomatik yeniden başlatıyoruz
+    rec.continuous = !isMobile;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
+    rec.onaudiostart = () => setSt(m, 'Mikrofon açık');
+    rec.onsoundstart = () => setSt(m, 'Ses var');
+    rec.onspeechstart = () => setSt(m, 'Konuşma algılandı');
     rec.onresult = (e) => {
+      restarts = 0;
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++){
         const r = e.results[i];
@@ -240,13 +249,22 @@
         showErr('Mikrofon izni verilmedi. Tarayıcı ayarlarından bu siteye mikrofon izni ver.');
       } else if (e.error === 'network'){
         showErr('Konuşma tanıma için internet gerekiyor.');
+      } else if (e.error === 'audio-capture'){
+        wantRun = false;
+        showErr('Mikrofona erişilemiyor. Başka bir uygulama mikrofonu kullanıyor olabilir.');
+      } else if (e.error === 'language-not-supported'){
+        wantRun = false;
+        showErr('Bu dil telefonda desteklenmiyor: ' + m.lang + '. Google uygulamasını güncelle.');
+      } else if (e.error !== 'no-speech' && e.error !== 'aborted'){
+        showErr('Hata: ' + e.error);
       }
     };
     rec.onend = () => {
       // Telefonlarda tanıma kendi kendine durabiliyor; kullanıcı durdurmadıysa yeniden başlat
       if (wantRun && current === key){
         if (interimText){ finalText = (finalText + ' ' + interimText).trim(); interimText=''; }
-        try { rec.start(); } catch(e){}
+        if (++restarts > 30){ wantRun = false; showErr('Ses algılanamadı. Telefonda Google ses tanıma açık mı kontrol et.'); stopUI(); return; }
+        setTimeout(() => { if (wantRun && current === key){ try { rec.start(); } catch(e){} } }, 150);
       } else {
         stopUI();
       }
