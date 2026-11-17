@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Anlık Çeviri</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#181b22; --line:#262a33; --text:#eef0f4; --muted:#8b92a1;
+    --guest:#3b82f6; --guest-soft:rgba(59,130,246,.14);
+    --me:#22c55e; --me-soft:rgba(34,197,94,.14);
+    --rec:#ef4444;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  body{display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 6px}
+  header h1{font-size:17px;font-weight:700;letter-spacing:.2px}
+  .font{display:flex;gap:6px}
+  .font button{width:34px;height:30px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);font-size:14px;font-weight:600}
+
+  main{flex:1;display:flex;flex-direction:column;gap:8px;padding:4px 10px;min-height:0}
+  .pane{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:16px;
+    background:var(--panel);border:1px solid var(--line);overflow:hidden;transition:border-color .2s}
+  .pane.guest.active{border-color:var(--guest);box-shadow:0 0 0 1px var(--guest) inset}
+  .pane.me.active{border-color:var(--me);box-shadow:0 0 0 1px var(--me) inset}
+  .pane-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px 4px;
+    font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+  .guest .pane-head{color:var(--guest)} .me .pane-head{color:var(--me)}
+  .status{font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--muted);
+    display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--rec);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .body{flex:1;overflow-y:auto;padding:4px 12px 12px;display:flex;flex-direction:column;gap:8px}
+  .src{font-size:calc(var(--fs) * .62);color:var(--muted);line-height:1.35}
+  .dst{font-size:var(--fs);line-height:1.35;font-weight:600}
+  .me .dst{font-weight:700}
+  .interim{opacity:.55}
+  .hint{color:var(--muted);font-size:14px;line-height:1.4}
+  .speak{border:none;background:var(--me-soft);color:var(--me);font-size:12px;font-weight:700;
+    padding:5px 10px;border-radius:999px;display:none}
+  .speak.show{display:inline-block}
+
+  footer{display:flex;gap:10px;padding:10px 10px 12px}
+  .btn{flex:1;border:none;border-radius:18px;padding:18px 8px;font-size:17px;font-weight:800;
+    color:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform .08s}
+  .btn:active{transform:scale(.97)}
+  .btn small{font-size:11px;font-weight:600;opacity:.85}
+  .btn.guest{background:var(--guest)} .btn.me{background:var(--me)}
+  .btn.on{background:var(--rec)}
+  .err{display:none;margin:0 10px;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.15);
+    color:#fca5a5;font-size:13px;line-height:1.4}
+  .err.show{display:block}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌐 Anlık Çeviri</h1>
+  <div class="font">
+    <button id="fsDown" aria-label="Yazıyı küçült">A−</button>
+    <button id="fsUp" aria-label="Yazıyı büyüt">A+</button>
+  </div>
+</header>
+
+<div class="err" id="err"></div>
+
+<main>
+  <section class="pane guest" id="paneGuest">
+    <div class="pane-head">
+      <span>Misafir · EN → TR</span>
+      <span class="status" id="stGuest"></span>
+    </div>
+    <div class="body" id="bodyGuest">
+      <p class="hint">"Misafir" butonuna bas, karşındaki İngilizce konuşsun. Söyledikleri burada Türkçe görünecek.</p>
+    </div>
+  </section>
+
+  <section class="pane me" id="paneMe">
+    <div class="pane-head">
+      <span>Senin cevabın · TR → EN</span>
+      <span style="display:flex;gap:8px;align-items:center">
+        <span class="status" id="stMe"></span>
+        <button class="speak" id="speakBtn">🔊 Dinle</button>
+      </span>
+    </div>
+    <div class="body" id="bodyMe">
+      <p class="hint">"Cevap ver" butonuna bas, Türkçe konuş. İngilizcesi burada çıkacak, sen de karşına oku.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <button class="btn guest" id="btnGuest">🎧 Misafir<small>Dinle &amp; çevir</small></button>
+  <button class="btn me" id="btnMe">🗣️ Cevap ver<small>Türkçe konuş</small></button>
+</footer>
+
+<script>
+(function(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const $ = id => document.getElementById(id);
+  const errBox = $('err');
+  function showErr(msg){ errBox.textContent = msg; errBox.classList.add('show'); }
+  function clearErr(){ errBox.classList.remove('show'); }
+
+  // ---------- Font size ----------
+  let fs = 26;
+  try { fs = parseInt(localStorage.getItem('fs')) || 26; } catch(e){}
+  function applyFs(){ document.documentElement.style.setProperty('--fs', fs + 'px');
+    try{ localStorage.setItem('fs', fs); }catch(e){} }
+  applyFs();
+  $('fsUp').onclick = () => { fs = Math.min(44, fs + 2); applyFs(); };
+  $('fsDown').onclick = () => { fs = Math.max(16, fs - 2); applyFs(); };
+
+  if (!SR) {
+    showErr('Bu tarayıcı konuşma tanımayı desteklemiyor. Android\'de Chrome, iPhone\'da Safari ile aç.');
+  }
+
+  // ---------- Translation ----------
+  async function translate(text, sl, tl){
+    text = text.trim();
+    if (!text) return '';
+    try {
+      const u = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + sl +
+                '&tl=' + tl + '&q=' + encodeURIComponent(text);
+      const r = await fetch(u);
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      return d[0].map(x => x[0]).join('');
+    } catch (e) {
+      const u2 = 'https://api.mymemory.translated.net/get?langpair=' + sl + '|' + tl +
+                 '&q=' + encodeURIComponent(text.slice(0, 480));
+      const r2 = await fetch(u2);
+      const d2 = await r2.json();
+      return d2.responseData.translatedText;
+    }
+  }
+
+  // ---------- Modes ----------
+  const modes = {
+    guest: { lang:'en-US', sl:'en', tl:'tr', pane:$('paneGuest'), body:$('bodyGuest'), st:$('stGuest'), btn:$('btnGuest'),
+             onLabel:'⏹ Durdur', offLabel:'🎧 Misafir<small>Dinle &amp; çevir</small>' },
+    me:    { lang:'tr-TR', sl:'tr', tl:'en', pane:$('paneMe'), body:$('bodyMe'), st:$('stMe'), btn:$('btnMe'),
+             onLabel:'⏹ Durdur', offLabel:'🗣️ Cevap ver<small>Türkçe konuş</small>' }
+  };
+
+  let rec = null, current = null, wantRun = false;
+  let finalText = '', interimText = '', reqId = 0, debounce = null, lastTranslated = '';
+  let wakeLock = null;
+
+  function render(m, translated, pending){
+    m.body.innerHTML = '';
+    const src = document.createElement('p');
+    src.className = 'src';
+    src.textContent = finalText;
+    if (interimText){
+      const s = document.createElement('span'); s.className = 'interim';
+      s.textContent = (finalText ? ' ' : '') + interimText; src.appendChild(s);
+    }
+    const dst = document.createElement('p');
+    dst.className = 'dst' + (pending ? ' interim' : '');
+    dst.textContent = translated || (finalText || interimText ? '…' : '');
+    m.body.appendChild(dst);
+    m.body.appendChild(src);
+    m.body.scrollTop = m.body.scrollHeight;
+  }
+
+  function scheduleTranslate(m, immediate){
+    clearTimeout(debounce);
+    const run = async () => {
+      const full = (finalText + ' ' + interimText).trim();
+      if (!full) return;
+      const id = ++reqId;
+      try {
+        const t = await translate(full, m.sl, m.tl);
+        if (id !== reqId) return;           // eski cevap, at
+        lastTranslated = t;
+        render(m, t, false);
+        if (m === modes.me) $('speakBtn').classList.add('show');
+      } catch (e) {
+        if (id === reqId) showErr('Çeviri yapılamadı. İnternet bağlantını kontrol et.');
+      }
+    };
+    if (immediate) run(); else debounce = setTimeout(run, 350);
+  }
+
+  function setUI(){
+    for (const k in modes){
+      const m = modes[k], on = current === k;
+      m.pane.classList.toggle('active', on);
+      m.btn.classList.toggle('on', on);
+      m.btn.innerHTML = on ? m.onLabel : m.offLabel;
+      m.st.innerHTML = on ? '<span class="dot"></span>Dinliyor' : '';
+    }
+  }
+
+  async function keepAwake(on){
+    try{
+      if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+      else if (!on && wakeLock){ await wakeLock.release(); wakeLock = null; }
+    }catch(e){}
+  }
+
+  function startMode(key){
+    if (!SR) return;
+    clearErr();
+    speechSynthesis && speechSynthesis.cancel();
+    const m = modes[key];
+    current = key; wantRun = true;
+    finalText = ''; interimText = ''; lastTranslated = ''; reqId++;
+    if (key === 'me') $('speakBtn').classList.remove('show');
+    m.body.innerHTML = '<p class="hint">Dinliyorum…</p>';
+    setUI(); keepAwake(true);
+
+    rec = new SR();
+    rec.lang = m.lang;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++){
+        const r = e.results[i];
+        if (r.isFinal) finalText = (finalText + ' ' + r[0].transcript).trim();
+        else interim += r[0].transcript;
+      }
+      interimText = interim.trim();
+      render(m, lastTranslated, true);
+      scheduleTranslate(m, !interimText);
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+        wantRun = false;
+        showErr('Mikrofon izni verilmedi. Tarayıcı ayarlarından bu siteye mikrofon izni ver.');
+      } else if (e.error === 'network'){
+        showErr('Konuşma tanıma için internet gerekiyor.');
+      }
+    };
+    rec.onend = () => {
+      // Telefonlarda tanıma kendi kendine durabiliyor; kullanıcı durdurmadıysa yeniden başlat
+      if (wantRun && current === key){
+        if (interimText){ finalText = (finalText + ' ' + interimText).trim(); interimText=''; }
+        try { rec.start(); } catch(e){}
+      } else {
+        stopUI();
+      }
+    };
+    try { rec.start(); } catch(e){ showErr('Mikrofon başlatılamadı.'); }
+  }
+
+  function stopUI(){
+    const m = current && modes[current];
+    if (m){
+      if (interimText){ finalText = (finalText + ' ' + interimText).trim(); interimText=''; }
+      if (finalText) scheduleTranslate(m, true);
+      else m.body.innerHTML = '<p class="hint">Bir şey duyulmadı. Tekrar dene.</p>';
+    }
+    current = null; setUI(); keepAwake(false);
+  }
+
+  function stopMode(){
+    wantRun = false;
+    if (rec){ try { rec.stop(); } catch(e){} }
+    else stopUI();
+  }
+
+  function toggle(key){
+    if (current === key){ stopMode(); return; }
+    if (current){
+      wantRun = false;
+      const old = rec; rec = null;
+      try { old.onend = null; old.abort(); } catch(e){}
+      current = null;
+    }
+    startMode(key);
+  }
+
+  $('btnGuest').onclick = () => toggle('guest');
+  $('btnMe').onclick = () => toggle('me');
+
+  // ---------- Sesli dinleme (isteğe bağlı) ----------
+  $('speakBtn').onclick = () => {
+    if (!('speechSynthesis' in window) || !lastTranslated) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(lastTranslated);
+    u.lang = 'en-US'; u.rate = 0.9;
+    const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('en'));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && current) stopMode();
+  });
+})();
+</script>
+</body>
+</html>
